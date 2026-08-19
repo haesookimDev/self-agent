@@ -25,12 +25,14 @@
       "redirectUris": [
         "http://localhost:5173/*",
         "https://continuum.localhost/*",
+        "https://continuum.localtest.me/",
         "https://continuum.example.com/*",
         "app.continuum.agent:/oauth2redirect"
       ],
       "webOrigins": [
         "http://localhost:5173",
         "https://continuum.localhost",
+        "https://continuum.localtest.me",
         "https://continuum.example.com"
       ],
       "attributes": {
@@ -44,6 +46,9 @@
         "basic",
         "email",
         "continuum-api"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
       ]
     }
   ],
