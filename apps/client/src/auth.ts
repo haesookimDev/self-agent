@@ -1,6 +1,6 @@
-const issuer = import.meta.env.VITE_OIDC_ISSUER;
+import { oidcIssuer, oidcRedirectUri } from './server-config';
+
 const clientId = import.meta.env.VITE_OIDC_CLIENT_ID ?? 'continuum-client';
-const redirectUri = import.meta.env.VITE_OIDC_REDIRECT_URI ?? `${window.location.origin}/`;
 
 interface TokenResponse {
   access_token: string;
@@ -20,7 +20,7 @@ async function challenge(verifier: string): Promise<string> {
 }
 
 export function authConfigured(): boolean {
-  return Boolean(issuer);
+  return Boolean(oidcIssuer());
 }
 
 export function authenticated(): boolean {
@@ -28,7 +28,9 @@ export function authenticated(): boolean {
 }
 
 export async function login(): Promise<void> {
+  const issuer = oidcIssuer();
   if (!issuer) return;
+  const redirectUri = oidcRedirectUri();
   const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
   const state = crypto.randomUUID();
   sessionStorage.setItem('continuum.pkceVerifier', verifier);
@@ -46,7 +48,9 @@ export async function login(): Promise<void> {
 }
 
 export async function completeLoginIfNeeded(): Promise<void> {
+  const issuer = oidcIssuer();
   if (!issuer) return;
+  const redirectUri = oidcRedirectUri();
   const url = new URL(window.location.href);
   const code = url.searchParams.get('code');
   if (!code) return;
@@ -83,13 +87,16 @@ export function logout(): void {
   localStorage.removeItem('continuum.accessToken');
   localStorage.removeItem('continuum.refreshToken');
   localStorage.removeItem('continuum.tokenExpiresAt');
+  const issuer = oidcIssuer();
   if (issuer) {
+    const redirectUri = oidcRedirectUri();
     const query = new URLSearchParams({ client_id: clientId, post_logout_redirect_uri: redirectUri });
     window.location.assign(`${issuer}/protocol/openid-connect/logout?${query}`);
   }
 }
 
 export async function refreshAccessToken(): Promise<boolean> {
+  const issuer = oidcIssuer();
   if (!issuer) return false;
   const refreshToken = localStorage.getItem('continuum.refreshToken');
   if (!refreshToken) return false;

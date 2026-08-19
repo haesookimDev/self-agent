@@ -95,7 +95,7 @@ services:
       OIDC_ISSUER: https://${AUTH_DOMAIN:-auth.continuum.localhost}/realms/continuum
       OIDC_AUDIENCE: continuum-api
       OIDC_JWKS_URL: http://keycloak:8080/realms/continuum/protocol/openid-connect/certs
-      CORS_ORIGIN: https://${APP_DOMAIN:-continuum.localhost}
+      CORS_ORIGIN: https://${APP_DOMAIN:-continuum.localhost},http://localhost:5173,tauri://localhost,http://tauri.localhost,https://tauri.localhost
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
       S3_BUCKET: continuum-files

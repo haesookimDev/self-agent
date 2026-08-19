@@ -21,9 +21,9 @@ export interface CreateRootInput {
 export class SyncService {
   constructor(
     @Inject(STATE_STORE) private readonly store: StateStore,
-    private readonly devices: DeviceService,
-    private readonly objects: ObjectStoreService,
-    private readonly audit: AuditService,
+    @Inject(DeviceService) private readonly devices: DeviceService,
+    @Inject(ObjectStoreService) private readonly objects: ObjectStoreService,
+    @Inject(AuditService) private readonly audit: AuditService,
   ) {}
 
   async createRoot(userId: string, input: CreateRootInput): Promise<SyncRoot> {

@@ -27,9 +27,9 @@ const MAX_COMMAND_LIFETIME_MS = 24 * 60 * 60 * 1_000;
 export class CommandService {
   constructor(
     @Inject(STATE_STORE) private readonly store: StateStore,
-    private readonly devices: DeviceService,
-    private readonly connections: ConnectionRegistry,
-    private readonly audit: AuditService,
+    @Inject(DeviceService) private readonly devices: DeviceService,
+    @Inject(ConnectionRegistry) private readonly connections: ConnectionRegistry,
+    @Inject(AuditService) private readonly audit: AuditService,
   ) {}
 
   async create(userId: string, request: CommandRequest): Promise<CommandEnvelope> {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Post } from '@nestjs/common';
 import { DeviceCapabilitiesSchema, DeviceKindSchema, DevicePlatformSchema } from '@continuum/protocol';
 import { z } from 'zod';
 import { UserId } from '../auth/user-id.decorator.js';
@@ -14,7 +14,7 @@ const RegisterDeviceSchema = z.object({
 
 @Controller('v1/devices')
 export class DeviceController {
-  constructor(private readonly devices: DeviceService) {}
+  constructor(@Inject(DeviceService) private readonly devices: DeviceService) {}
 
   @Get()
   list(@UserId() userId: string) {

@@ -24,7 +24,7 @@ function credentialHash(credential: string): string {
 export class DeviceService {
   constructor(
     @Inject(STATE_STORE) private readonly store: StateStore,
-    private readonly audit: AuditService,
+    @Inject(AuditService) private readonly audit: AuditService,
   ) {}
 
   async register(userId: string, input: RegisterDeviceInput): Promise<RegisteredDevice> {

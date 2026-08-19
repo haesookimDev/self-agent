@@ -21,7 +21,7 @@ export class ImprovementQueueService implements OnApplicationShutdown {
 
   constructor(
     @Inject(STATE_STORE) private readonly store: StateStore,
-    private readonly audit: AuditService,
+    @Inject(AuditService) private readonly audit: AuditService,
   ) {
     const redisUrl = config().REDIS_URL;
     if (!redisUrl) return;

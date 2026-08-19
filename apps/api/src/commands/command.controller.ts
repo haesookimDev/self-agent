@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import { ApprovalDecisionSchema, CommandRequestSchema, type ApprovalDecision, type CommandRequest } from '@continuum/protocol';
 import { UserId } from '../auth/user-id.decorator.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -6,7 +6,7 @@ import { CommandService } from './command.service.js';
 
 @Controller('v1/commands')
 export class CommandController {
-  constructor(private readonly commands: CommandService) {}
+  constructor(@Inject(CommandService) private readonly commands: CommandService) {}
 
   @Post()
   create(

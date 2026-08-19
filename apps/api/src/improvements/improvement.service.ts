@@ -22,8 +22,8 @@ export type CreateCandidateInput = Pick<
 export class ImprovementService {
   constructor(
     @Inject(STATE_STORE) private readonly store: StateStore,
-    private readonly audit: AuditService,
-    @Optional() private readonly queue?: ImprovementQueueService,
+    @Inject(AuditService) private readonly audit: AuditService,
+    @Optional() @Inject(ImprovementQueueService) private readonly queue?: ImprovementQueueService,
   ) {}
 
   async recordFeedback(userId: string, input: Feedback): Promise<StoredFeedback> {

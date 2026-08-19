@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
 import { MemoryKindSchema } from '@continuum/protocol';
 import { z } from 'zod';
 import { UserId } from '../auth/user-id.decorator.js';
@@ -14,7 +14,7 @@ const CreateMemorySchema = z.object({
 
 @Controller('v1/memories')
 export class MemoryController {
-  constructor(private readonly memories: MemoryService) {}
+  constructor(@Inject(MemoryService) private readonly memories: MemoryService) {}
 
   @Get()
   list(@UserId() userId: string) {

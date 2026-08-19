@@ -10,7 +10,7 @@ export type CreateMemoryInput = Pick<MemoryItem, 'kind' | 'content' | 'source' |
 export class MemoryService {
   constructor(
     @Inject(STATE_STORE) private readonly store: StateStore,
-    private readonly audit: AuditService,
+    @Inject(AuditService) private readonly audit: AuditService,
   ) {}
 
   async create(userId: string, input: CreateMemoryInput): Promise<MemoryItem> {

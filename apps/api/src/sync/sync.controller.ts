@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post } from '@nestjs/common';
 import { IdSchema, SyncVersionRequestSchema, type SyncVersionRequest } from '@continuum/protocol';
 import { z } from 'zod';
 import { UserId } from '../auth/user-id.decorator.js';
@@ -13,7 +13,7 @@ const CreateRootSchema = z.object({
 
 @Controller('v1/sync')
 export class SyncController {
-  constructor(private readonly sync: SyncService) {}
+  constructor(@Inject(SyncService) private readonly sync: SyncService) {}
 
   @Get('roots')
   roots(@UserId() userId: string) {

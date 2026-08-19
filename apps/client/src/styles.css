@@ -64,6 +64,16 @@ main { padding: 34px clamp(24px, 4vw, 64px) 64px; min-width: 0; }
 .ghost { color: #b8c5c0; border-color: #303835; background: #171c1a; }
 .danger { color: #ffaaa5; border-color: #59302e; background: #2b1817; }
 .error-banner { max-width: 1280px; margin: 0 auto 16px; padding: 12px 15px; border: 1px solid #6d3330; border-radius: 10px; color: #ffaaa5; background: #2a1716; }
+.setup-shell { min-height: 100vh; padding: 32px; display: grid; place-items: center; }
+.setup-card { width: min(560px, 100%); padding: clamp(28px, 6vw, 52px); border: 1px solid #315b4b; border-radius: 20px; background: rgba(16,22,20,.94); box-shadow: 0 30px 90px rgba(0,0,0,.35); }
+.setup-brand { margin-bottom: 42px; }
+.setup-card h1 { margin: 8px 0 12px; font-size: clamp(30px, 6vw, 46px); letter-spacing: -.05em; }
+.setup-copy { margin: 0 0 28px; color: #8d9b95; line-height: 1.65; }
+.server-form { margin-top: 12px; }
+.connection-preview { display: grid; gap: 8px; padding: 12px; border: 1px solid #27312d; border-radius: 9px; background: #0d1210; }
+.connection-preview span { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; color: #73817b; font-size: 11px; }
+.connection-preview code { overflow-wrap: anywhere; color: #9db5aa; }
+.form-error { margin: 0; color: #ffaaa5; font-size: 12px; line-height: 1.5; }
 .two-column { align-items: start; }
 .full-span { grid-column: 1 / -1; }
 form { display: grid; gap: 15px; }

@@ -9,8 +9,8 @@ import type {
   MemoryItem,
 } from '@continuum/protocol';
 import { refreshAccessToken } from './auth';
+import { apiBaseUrl } from './server-config';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID ?? '00000000-0000-4000-8000-000000000001';
 
 export class ApiError extends Error {
@@ -24,7 +24,7 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const token = localStorage.getItem('continuum.accessToken');
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
@@ -73,5 +73,5 @@ export const api = {
 };
 
 export function websocketUrl(): string {
-  return `${API_URL.replace(/^http/, 'ws')}/v1/events`;
+  return `${apiBaseUrl().replace(/^http/, 'ws')}/v1/events`;
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post } from '@nestjs/common';
 import { CandidateKindSchema, FeedbackSchema, type Feedback } from '@continuum/protocol';
 import { z } from 'zod';
 import { UserId } from '../auth/user-id.decorator.js';
@@ -18,7 +18,7 @@ const CreateCandidateSchema = z.object({
 
 @Controller('v1/improvements')
 export class ImprovementController {
-  constructor(private readonly improvements: ImprovementService) {}
+  constructor(@Inject(ImprovementService) private readonly improvements: ImprovementService) {}
 
   @Post('feedback')
   feedback(

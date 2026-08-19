@@ -9,6 +9,14 @@ import type {
 } from '@continuum/protocol';
 import { api } from './api';
 import { authConfigured, authenticated, login, logout } from './auth';
+import {
+  createServerConnection,
+  isTauriRuntime,
+  loadServerConnection,
+  needsServerConnection,
+  saveServerConnection,
+  type ServerConnection,
+} from './server-config';
 
 type Tab = 'overview' | 'commands' | 'memory' | 'improvements' | 'settings';
 
@@ -60,6 +68,102 @@ function statusLabel(status: CommandEnvelope['status']): string {
 }
 
 export function App() {
+  if (needsServerConnection()) return <ServerSetup />;
+  return <Dashboard />;
+}
+
+function ServerSetup() {
+  return (
+    <main className="setup-shell">
+      <section className="setup-card">
+        <div className="brand setup-brand">
+          <span className="brand-mark">C</span>
+          <div><strong>Continuum</strong><small>Personal agent mesh</small></div>
+        </div>
+        <p className="eyebrow">첫 연결 설정</p>
+        <h1>연결할 서버를 선택하세요.</h1>
+        <p className="setup-copy">플랫폼 도메인 하나로 API와 로그인 서버 주소를 구성하고, 저장하기 전에 연결 상태를 확인합니다.</p>
+        <ServerConnectionForm />
+      </section>
+    </main>
+  );
+}
+
+function ServerConnectionForm() {
+  const saved = loadServerConnection();
+  const [domain, setDomain] = useState(saved?.appUrl ?? '');
+  const [busy, setBusy] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const preview = useMemo<{ connection: ServerConnection | null; error: string | null }>(() => {
+    if (!domain.trim()) return { connection: null, error: null };
+    try {
+      return { connection: createServerConnection(domain), error: null };
+    } catch (reason) {
+      return { connection: null, error: reason instanceof Error ? reason.message : String(reason) };
+    }
+  }, [domain]);
+
+  async function connect(event: FormEvent) {
+    event.preventDefault();
+    setConnectionError(null);
+    if (!preview.connection) {
+      setConnectionError(preview.error ?? '서버 도메인을 입력하세요.');
+      return;
+    }
+
+    setBusy(true);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8_000);
+    try {
+      const response = await fetch(`${preview.connection.apiUrl}/health`, {
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      const payload = (await response.json().catch(() => null)) as { status?: string; message?: string } | null;
+      if (!response.ok || payload?.status !== 'ok') {
+        throw new Error(payload?.message ?? `API health check failed (${response.status})`);
+      }
+      saveServerConnection(preview.connection);
+      window.location.reload();
+    } catch (reason) {
+      const detail = reason instanceof Error && reason.name === 'AbortError'
+        ? '연결 시간이 초과되었습니다.'
+        : reason instanceof Error ? reason.message : String(reason);
+      setConnectionError(`서버에 연결하지 못했습니다. ${detail}`);
+    } finally {
+      window.clearTimeout(timeout);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="server-form" onSubmit={(event) => void connect(event)}>
+      <label>플랫폼 도메인
+        <input
+          value={domain}
+          onChange={(event) => setDomain(event.target.value)}
+          placeholder="continuum.localtest.me"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+        />
+      </label>
+      {preview.connection && (
+        <div className="connection-preview">
+          <span>API <code>{preview.connection.apiUrl}</code></span>
+          <span>로그인 <code>{preview.connection.oidcIssuer}</code></span>
+        </div>
+      )}
+      {(preview.error || connectionError) && <p className="form-error">{connectionError ?? preview.error}</p>}
+      <button className="primary" disabled={busy || !preview.connection}>
+        {busy ? '연결 확인 중…' : saved ? '연결 확인 후 변경' : '연결 확인 후 시작'}
+      </button>
+    </form>
+  );
+}
+
+function Dashboard() {
   const [tab, setTab] = useState<Tab>('overview');
   const [data, setData] = useState<DashboardData>(EMPTY);
   const [loading, setLoading] = useState(true);
@@ -332,7 +436,7 @@ function Settings() {
     await invoke('approve_local_root', { rootId, path: rootPath });
     setRootPath('');
   }
-  return <div className="two-column"><section className="panel"><div className="section-heading"><h3>PC 실행기 자격 증명</h3><span>OS 보안 저장소</span></div><p>기기 등록 응답으로 받은 자격 증명은 macOS Keychain 또는 Windows Credential Manager에 저장됩니다.</p><form onSubmit={(event) => void save(event)}><label>Device ID<input value={deviceId} onChange={(event) => setDeviceId(event.target.value)} /></label><label>Device credential<input type="password" value={credential} onChange={(event) => setCredential(event.target.value)} /></label><button className="primary" disabled={!('__TAURI_INTERNALS__' in window)}>안전하게 저장하고 재시작</button></form></section><section className="panel"><div className="section-heading"><h3>허용 폴더</h3><span>원격 변경 불가</span></div><p>로컬에서 명시적으로 등록한 폴더만 원격 파일 도구가 접근할 수 있습니다.</p><form onSubmit={(event) => void approveRoot(event)}><label>Root ID<input value={rootId} onChange={(event) => setRootId(event.target.value)} /></label><label>로컬 절대 경로<input value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder="/Users/me/workspace" /></label><button className="ghost" disabled={!('__TAURI_INTERNALS__' in window)}>이 PC에서 폴더 허용</button></form></section></div>;
+  return <div className="two-column">{isTauriRuntime() && <section className="panel full-span"><div className="section-heading"><h3>제어 서버</h3><span>이 PC에 저장됨</span></div><p>플랫폼 도메인을 변경하면 기존 로그인 토큰을 지우고 새 서버로 다시 연결합니다.</p><ServerConnectionForm /></section>}<section className="panel"><div className="section-heading"><h3>PC 실행기 자격 증명</h3><span>OS 보안 저장소</span></div><p>기기 등록 응답으로 받은 자격 증명은 macOS Keychain 또는 Windows Credential Manager에 저장됩니다.</p><form onSubmit={(event) => void save(event)}><label>Device ID<input value={deviceId} onChange={(event) => setDeviceId(event.target.value)} /></label><label>Device credential<input type="password" value={credential} onChange={(event) => setCredential(event.target.value)} /></label><button className="primary" disabled={!('__TAURI_INTERNALS__' in window)}>안전하게 저장하고 재시작</button></form></section><section className="panel"><div className="section-heading"><h3>허용 폴더</h3><span>원격 변경 불가</span></div><p>로컬에서 명시적으로 등록한 폴더만 원격 파일 도구가 접근할 수 있습니다.</p><form onSubmit={(event) => void approveRoot(event)}><label>Root ID<input value={rootId} onChange={(event) => setRootId(event.target.value)} /></label><label>로컬 절대 경로<input value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder="/Users/me/workspace" /></label><button className="ghost" disabled={!('__TAURI_INTERNALS__' in window)}>이 PC에서 폴더 허용</button></form></section></div>;
 }
 
 function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }

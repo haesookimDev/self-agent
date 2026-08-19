@@ -15,9 +15,9 @@ export class DeviceGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(
     @Inject(STATE_STORE) private readonly store: StateStore,
-    private readonly devices: DeviceService,
-    private readonly commands: CommandService,
-    private readonly connections: ConnectionRegistry,
+    @Inject(DeviceService) private readonly devices: DeviceService,
+    @Inject(CommandService) private readonly commands: CommandService,
+    @Inject(ConnectionRegistry) private readonly connections: ConnectionRegistry,
   ) {}
 
   handleConnection(client: WebSocket): void {

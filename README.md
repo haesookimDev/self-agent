@@ -57,6 +57,8 @@ Run the desktop application:
 npm run tauri --workspace @continuum/client -- dev
 ```
 
+On first launch, enter the platform domain, for example `continuum.localtest.me`. The desktop client derives the API and OIDC endpoints, verifies `/health`, and stores the selected server locally. You can change it later under **Settings → Control server**.
+
 Generate native mobile projects after installing Xcode or Android Studio:
 
 ```bash
