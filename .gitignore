@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.local
+*.log
+*.tsbuildinfo
+.vite/
+.DS_Store
+apps/client/src-tauri/target/
+apps/client/src-tauri/gen/
+apps/client/android/
+apps/client/ios/
+data/
