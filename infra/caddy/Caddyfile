@@ -1,14 +1,17 @@
 {$APP_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy client:80
+    tls internal
+    encode zstd gzip
+    reverse_proxy client:80
 }
 
 {$API_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy api:3000
+    tls internal
+    encode zstd gzip
+    reverse_proxy api:3000
 }
 
 {$AUTH_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy keycloak:8080
+    tls internal
+    encode zstd gzip
+    reverse_proxy keycloak:8080
 }
