@@ -1,0 +1,27 @@
+[package]
+name = "continuum-desktop"
+version = "0.1.0"
+description = "Continuum safe local executor"
+authors = ["Continuum"]
+edition = "2021"
+
+[lib]
+name = "continuum_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = { version = "0.22", optional = true }
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+screenshots = { version = "0.8", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+trash = "5"
+uuid = { version = "1", features = ["v4"] }
+
+[features]
+default = ["native-capture"]
+native-capture = ["dep:base64", "dep:screenshots"]

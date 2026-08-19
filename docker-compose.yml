@@ -1,0 +1,173 @@
+name: continuum
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-continuum}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: continuum
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/000-create-keycloak.sql:/docker-entrypoint-initdb.d/000-create-keycloak.sql:ro
+      - ./apps/api/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001-continuum.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-continuum} -d continuum"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    restart: unless-stopped
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-continuum}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-continuum}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+        mc mb --ignore-existing local/continuum-files &&
+        mc anonymous set none local/continuum-files
+    restart: "no"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    restart: unless-stopped
+    command: start --http-enabled=true --proxy-headers=xforwarded --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-continuum}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: https://${AUTH_DOMAIN:-auth.continuum.localhost}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./infra/keycloak/continuum-realm.json:/opt/keycloak/data/import/continuum-realm.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-continuum}:${POSTGRES_PASSWORD}@postgres:5432/continuum
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+      AUTH_DISABLED: "false"
+      OIDC_ISSUER: https://${AUTH_DOMAIN:-auth.continuum.localhost}/realms/continuum
+      OIDC_AUDIENCE: continuum-api
+      OIDC_JWKS_URL: http://keycloak:8080/realms/continuum/protocol/openid-connect/certs
+      CORS_ORIGIN: https://${APP_DOMAIN:-continuum.localhost}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: continuum-files
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-continuum}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+      args:
+        VITE_API_URL: https://${API_DOMAIN:-api.continuum.localhost}
+        VITE_OIDC_ISSUER: https://${AUTH_DOMAIN:-auth.continuum.localhost}/realms/continuum
+        VITE_OIDC_CLIENT_ID: continuum-client
+        VITE_OIDC_REDIRECT_URI: https://${APP_DOMAIN:-continuum.localhost}/
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --no-cli
+      - --log-file=stdout
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET}
+      - --realm=${TURN_REALM:-turn.continuum.localhost}
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-continuum.localhost}
+      API_DOMAIN: ${API_DOMAIN:-api.continuum.localhost}
+      AUTH_DOMAIN: ${AUTH_DOMAIN:-auth.continuum.localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - client
+      - api
+      - keycloak
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  caddy-data:
+  caddy-config:

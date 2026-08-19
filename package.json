@@ -1,0 +1,28 @@
+{
+  "name": "continuum-agent-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal, multi-device agent control plane and device clients",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @continuum/protocol && npm run build --workspace @continuum/api && npm run build --workspace @continuum/client",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run build --workspace @continuum/protocol && npm run test --workspace @continuum/protocol && npm run test --workspace @continuum/api && npm run test --workspace @continuum/client",
+    "dev:api": "npm run dev --workspace @continuum/api",
+    "dev:client": "npm run dev --workspace @continuum/client"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "uuid": "$uuid"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "typescript": "^5.9.2",
+    "uuid": "^11.1.1"
+  }
+}

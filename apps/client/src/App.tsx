@@ -1,0 +1,338 @@
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import type {
+  Approval,
+  CommandEnvelope,
+  Device,
+  ImprovementCandidate,
+  MemoryItem,
+  ToolName,
+} from '@continuum/protocol';
+import { api } from './api';
+import { authConfigured, authenticated, login, logout } from './auth';
+
+type Tab = 'overview' | 'commands' | 'memory' | 'improvements' | 'settings';
+
+interface DashboardData {
+  devices: Device[];
+  commands: CommandEnvelope[];
+  approvals: Approval[];
+  memories: MemoryItem[];
+  candidates: ImprovementCandidate[];
+}
+
+const EMPTY: DashboardData = {
+  devices: [],
+  commands: [],
+  approvals: [],
+  memories: [],
+  candidates: [],
+};
+
+const TOOLS: ToolName[] = [
+  'file.list',
+  'file.read',
+  'file.write',
+  'file.trash',
+  'app.launch',
+  'screen.snapshot',
+  'screen.control',
+];
+
+function relativeTime(value: string | null): string {
+  if (!value) return '연결 기록 없음';
+  const seconds = Math.floor((Date.now() - Date.parse(value)) / 1_000);
+  if (seconds < 60) return `${seconds}초 전`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}분 전`;
+  return `${Math.floor(seconds / 3_600)}시간 전`;
+}
+
+function statusLabel(status: CommandEnvelope['status']): string {
+  return {
+    queued: '대기 중',
+    awaiting_approval: '승인 필요',
+    dispatched: '전달됨',
+    running: '실행 중',
+    succeeded: '완료',
+    failed: '실패',
+    expired: '만료',
+    cancelled: '취소',
+  }[status];
+}
+
+export function App() {
+  const [tab, setTab] = useState<Tab>('overview');
+  const [data, setData] = useState<DashboardData>(EMPTY);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [devices, commands, approvals, memories, candidates] = await Promise.all([
+        api.devices(),
+        api.commands(),
+        api.approvals(),
+        api.memories(),
+        api.candidates(),
+      ]);
+      setData({ devices, commands, approvals, memories, candidates });
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  const onlineCount = data.devices.filter((device) => device.online).length;
+
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">C</span>
+          <div><strong>Continuum</strong><small>Personal agent mesh</small></div>
+        </div>
+        <nav>
+          <NavButton tab="overview" active={tab} onClick={setTab}>개요</NavButton>
+          <NavButton tab="commands" active={tab} onClick={setTab}>명령</NavButton>
+          <NavButton tab="memory" active={tab} onClick={setTab}>메모리</NavButton>
+          <NavButton tab="improvements" active={tab} onClick={setTab}>개선 실험</NavButton>
+          <NavButton tab="settings" active={tab} onClick={setTab}>설정</NavButton>
+        </nav>
+        <div className="connection-state">
+          <span className={onlineCount ? 'dot online' : 'dot'} />
+          {onlineCount}개 기기 온라인
+        </div>
+      </aside>
+
+      <main>
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">통합 작업 환경</p>
+            <h1>{({ overview: '개요', commands: '원격 명령', memory: '개인 메모리', improvements: '개선 실험', settings: '로컬 설정' } as const)[tab]}</h1>
+          </div>
+          <div className="topbar-actions">
+            <button className="ghost" onClick={() => void refresh()} disabled={loading}>새로고침</button>
+            {authConfigured() && (authenticated()
+              ? <button className="ghost" onClick={logout}>로그아웃</button>
+              : <button className="primary" onClick={() => void login()}>로그인</button>)}
+          </div>
+        </header>
+
+        {error && <div className="error-banner">서버 연결 오류: {error}</div>}
+        {tab === 'overview' && <Overview data={data} setTab={setTab} />}
+        {tab === 'commands' && <Commands data={data} refresh={refresh} />}
+        {tab === 'memory' && <Memories items={data.memories} refresh={refresh} />}
+        {tab === 'improvements' && <Improvements items={data.candidates} refresh={refresh} />}
+        {tab === 'settings' && <Settings />}
+      </main>
+    </div>
+  );
+}
+
+function NavButton({ tab, active, onClick, children }: { tab: Tab; active: Tab; onClick: (tab: Tab) => void; children: string }) {
+  return <button className={active === tab ? 'nav-active' : ''} onClick={() => onClick(tab)}>{children}</button>;
+}
+
+function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: Tab) => void }) {
+  return (
+    <div className="content-grid">
+      <section className="hero-card">
+        <div>
+          <span className="pill">AGENT ONLINE</span>
+          <h2>어느 기기에서든<br />작업을 이어가세요.</h2>
+          <p>명령과 기억은 서버에 남고, 실제 작업은 선택한 PC에서 안전하게 실행됩니다.</p>
+        </div>
+        <button className="primary" onClick={() => setTab('commands')}>새 명령 만들기</button>
+      </section>
+      <section className="stats">
+        <article><span>등록 기기</span><strong>{data.devices.length}</strong></article>
+        <article><span>승인 대기</span><strong>{data.approvals.length}</strong></article>
+        <article><span>활성 메모리</span><strong>{data.memories.length}</strong></article>
+      </section>
+      <section className="panel devices-panel">
+        <div className="section-heading"><h3>내 기기</h3><span>{data.devices.length} devices</span></div>
+        <div className="device-list">
+          {data.devices.length === 0 && <Empty text="아직 등록된 기기가 없습니다." />}
+          {data.devices.map((device) => (
+            <article className="device" key={device.id}>
+              <div className="device-icon">{device.kind === 'executor' ? 'PC' : 'M'}</div>
+              <div><strong>{device.name}</strong><span>{device.platform} · {device.kind}</span></div>
+              <div className="device-presence"><span className={device.online ? 'dot online' : 'dot'} />{device.online ? '온라인' : relativeTime(device.lastSeenAt)}</div>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="panel activity-panel">
+        <div className="section-heading"><h3>최근 작업</h3><span>감사 가능한 실행 기록</span></div>
+        {data.commands.slice(0, 6).map((command) => (
+          <div className="activity" key={command.id}>
+            <span className={`risk risk-${command.risk}`}>{command.risk}</span>
+            <div><strong>{command.tool}</strong><small>{new Date(command.createdAt).toLocaleString()}</small></div>
+            <span className={`status status-${command.status}`}>{statusLabel(command.status)}</span>
+          </div>
+        ))}
+        {data.commands.length === 0 && <Empty text="실행 기록이 없습니다." />}
+      </section>
+    </div>
+  );
+}
+
+function Commands({ data, refresh }: { data: DashboardData; refresh: () => Promise<void> }) {
+  const executors = data.devices.filter((device) => device.kind === 'executor');
+  const [targetDeviceId, setTarget] = useState(executors[0]?.id ?? '');
+  const [tool, setTool] = useState<ToolName>('file.list');
+  const [args, setArgs] = useState('{\n  "rootId": "workspace",\n  "relativePath": "."\n}');
+  const [busy, setBusy] = useState(false);
+  const [screenBusy, setScreenBusy] = useState(false);
+  const [screenData, setScreenData] = useState<string | null>(null);
+  const commandsById = useMemo(() => new Map(data.commands.map((command) => [command.id, command])), [data.commands]);
+
+  useEffect(() => {
+    if (!targetDeviceId && executors[0]) setTarget(executors[0].id);
+  }, [executors, targetDeviceId]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await api.sendCommand({
+        targetDeviceId,
+        tool,
+        args: JSON.parse(args) as Record<string, unknown>,
+        idempotencyKey: crypto.randomUUID(),
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      });
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decide(commandId: string, decision: 'approve' | 'deny', biometricRequired: boolean) {
+    if (decision === 'approve' && biometricRequired) {
+      throw new Error('이 빌드에는 검증 가능한 생체 인증 어댑터가 없어 특권 작업 승인이 비활성화되어 있습니다.');
+    }
+    await api.decide(commandId, { decision, biometricVerified: false });
+    await refresh();
+  }
+
+  async function snapshot() {
+    if (!targetDeviceId) return;
+    setScreenBusy(true);
+    try {
+      const command = await api.sendCommand({
+        targetDeviceId,
+        tool: 'screen.snapshot',
+        args: {},
+        idempotencyKey: crypto.randomUUID(),
+        expiresAt: new Date(Date.now() + 2 * 60_000).toISOString(),
+      });
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        const result = await api.commandResult(command.id);
+        const png = result?.output?.pngBase64;
+        if (typeof png === 'string') {
+          setScreenData(`data:image/png;base64,${png}`);
+          break;
+        }
+        if (result?.status === 'failed') throw new Error(result.error ?? 'Screen capture failed');
+      }
+      await refresh();
+    } finally {
+      setScreenBusy(false);
+    }
+  }
+
+  return (
+    <div className="two-column">
+      <section className="panel command-compose">
+        <div className="section-heading"><h3>구조화 명령</h3><span>최대 유효시간 10분</span></div>
+        <form onSubmit={(event) => void submit(event)}>
+          <label>대상 PC<select value={targetDeviceId} onChange={(event) => setTarget(event.target.value)} required><option value="">기기 선택</option>{executors.map((device) => <option key={device.id} value={device.id}>{device.name}{device.online ? ' · online' : ' · offline'}</option>)}</select></label>
+          <label>도구<select value={tool} onChange={(event) => setTool(event.target.value as ToolName)}>{TOOLS.map((name) => <option key={name}>{name}</option>)}</select></label>
+          <label>인자 (JSON)<textarea value={args} onChange={(event) => setArgs(event.target.value)} rows={9} spellCheck={false} /></label>
+          <button className="primary" disabled={busy || !targetDeviceId}>{busy ? '전송 중…' : '명령 전송'}</button>
+        </form>
+      </section>
+      <section className="panel approvals-panel">
+        <div className="section-heading"><h3>승인 대기</h3><span>{data.approvals.length}</span></div>
+        {data.approvals.map((approval) => {
+          const command = commandsById.get(approval.commandId);
+          return <article className="approval" key={approval.id}>
+            <span className="risk risk-privileged">{command?.risk ?? 'approval'}</span>
+            <h4>{command?.tool ?? approval.commandId}</h4>
+            <pre>{JSON.stringify(command?.args ?? {}, null, 2)}</pre>
+            {approval.biometricRequired && <p className="warning">이 작업은 생체 인증이 필요합니다.</p>}
+            <div><button className="primary" disabled={approval.biometricRequired} title={approval.biometricRequired ? '네이티브 생체 인증 어댑터가 필요합니다.' : undefined} onClick={() => void decide(approval.commandId, 'approve', approval.biometricRequired)}>승인</button><button className="danger" onClick={() => void decide(approval.commandId, 'deny', false)}>거부</button></div>
+          </article>;
+        })}
+        {data.approvals.length === 0 && <Empty text="대기 중인 승인이 없습니다." />}
+      </section>
+      <section className="panel full-span">
+        <div className="section-heading"><h3>필요할 때 화면 확인</h3><button className="ghost" onClick={() => void snapshot()} disabled={screenBusy || !targetDeviceId}>{screenBusy ? '캡처 요청 중…' : '현재 화면 요청'}</button></div>
+        <div className="screen-preview">{screenData ? <img src={screenData} alt="원격 PC 화면 캡처" /> : <Empty text="에이전트 작업을 확인할 때만 화면 캡처를 요청합니다." />}</div>
+      </section>
+      <section className="panel full-span">
+        <div className="section-heading"><h3>명령 기록</h3><span>{data.commands.length}</span></div>
+        <div className="table-list">
+          {data.commands.map((command) => <div className="table-row" key={command.id}><span className={`risk risk-${command.risk}`}>{command.risk}</span><strong>{command.tool}</strong><span>{data.devices.find((device) => device.id === command.targetDeviceId)?.name ?? '알 수 없는 기기'}</span><span className={`status status-${command.status}`}>{statusLabel(command.status)}</span></div>)}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Memories({ items, refresh }: { items: MemoryItem[]; refresh: () => Promise<void> }) {
+  const [content, setContent] = useState('');
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await api.createMemory({ kind: 'preference', content, source: 'explicit:user', confidence: 1 });
+    setContent('');
+    await refresh();
+  }
+  return <div className="two-column"><section className="panel"><div className="section-heading"><h3>명시적 메모리 추가</h3><span>항상 출처 보존</span></div><form onSubmit={(event) => void submit(event)}><label>기억할 내용<textarea value={content} onChange={(event) => setContent(event.target.value)} rows={5} required /></label><button className="primary">저장</button></form></section><section className="panel"><div className="section-heading"><h3>저장된 메모리</h3><span>{items.length}</span></div>{items.map((item) => <article className="memory-card" key={item.id}><span className="pill">{item.kind}</span><p>{item.content}</p><small>{item.source} · 신뢰도 {Math.round(item.confidence * 100)}%</small></article>)}{items.length === 0 && <Empty text="저장된 메모리가 없습니다." />}</section></div>;
+}
+
+function Improvements({ items, refresh }: { items: ImprovementCandidate[]; refresh: () => Promise<void> }) {
+  const [after, setAfter] = useState('');
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await api.createCandidate({ kind: 'prompt', title: '사용자 제안', before: '', after, rationale: '사용자가 명시적으로 제안한 개선안' });
+    setAfter('');
+    await refresh();
+  }
+  async function action(id: string, name: 'evaluate' | 'activate' | 'rollback') { await api.candidateAction(id, name); await refresh(); }
+  return <div className="two-column"><section className="panel"><div className="section-heading"><h3>개선 후보 만들기</h3><span>자동 적용되지 않음</span></div><form onSubmit={(event) => void submit(event)}><label>변경 후 프롬프트/정책<textarea value={after} onChange={(event) => setAfter(event.target.value)} rows={8} required /></label><button className="primary">초안 저장</button></form></section><section className="panel"><div className="section-heading"><h3>버전 파이프라인</h3><span>{items.length}</span></div>{items.map((item) => <article className="candidate" key={item.id}><div><span className={`status status-${item.status}`}>{item.status}</span><span className="pill">{item.kind}</span></div><h4>{item.title}</h4><p>{item.rationale}</p><small>평가 {item.evaluationScore ?? '미실행'} · 안전성 {item.safetyPassed === null ? '미검증' : item.safetyPassed ? '통과' : '실패'}</small><div>{['draft', 'failed'].includes(item.status) && <button className="ghost" onClick={() => void action(item.id, 'evaluate')}>평가</button>}{item.status === 'ready' && <button className="primary" onClick={() => void action(item.id, 'activate')}>승인 및 적용</button>}{item.status === 'active' && <button className="danger" onClick={() => void action(item.id, 'rollback')}>롤백</button>}</div></article>)}{items.length === 0 && <Empty text="개선 후보가 없습니다." />}</section></div>;
+}
+
+function Settings() {
+  const [deviceId, setDeviceId] = useState(localStorage.getItem('continuum.deviceId') ?? '');
+  const [credential, setCredential] = useState('');
+  const [rootId, setRootId] = useState('workspace');
+  const [rootPath, setRootPath] = useState('');
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!('__TAURI_INTERNALS__' in window)) return;
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('store_device_credential', { deviceId, credential });
+    localStorage.setItem('continuum.deviceId', deviceId);
+    window.location.reload();
+  }
+  async function approveRoot(event: FormEvent) {
+    event.preventDefault();
+    if (!('__TAURI_INTERNALS__' in window)) return;
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('approve_local_root', { rootId, path: rootPath });
+    setRootPath('');
+  }
+  return <div className="two-column"><section className="panel"><div className="section-heading"><h3>PC 실행기 자격 증명</h3><span>OS 보안 저장소</span></div><p>기기 등록 응답으로 받은 자격 증명은 macOS Keychain 또는 Windows Credential Manager에 저장됩니다.</p><form onSubmit={(event) => void save(event)}><label>Device ID<input value={deviceId} onChange={(event) => setDeviceId(event.target.value)} /></label><label>Device credential<input type="password" value={credential} onChange={(event) => setCredential(event.target.value)} /></label><button className="primary" disabled={!('__TAURI_INTERNALS__' in window)}>안전하게 저장하고 재시작</button></form></section><section className="panel"><div className="section-heading"><h3>허용 폴더</h3><span>원격 변경 불가</span></div><p>로컬에서 명시적으로 등록한 폴더만 원격 파일 도구가 접근할 수 있습니다.</p><form onSubmit={(event) => void approveRoot(event)}><label>Root ID<input value={rootId} onChange={(event) => setRootId(event.target.value)} /></label><label>로컬 절대 경로<input value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder="/Users/me/workspace" /></label><button className="ghost" disabled={!('__TAURI_INTERNALS__' in window)}>이 PC에서 폴더 허용</button></form></section></div>;
+}
+
+function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }

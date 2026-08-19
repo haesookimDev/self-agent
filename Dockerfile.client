@@ -1,0 +1,24 @@
+FROM node:24-bookworm-slim AS build
+WORKDIR /workspace
+ARG VITE_API_URL
+ARG VITE_OIDC_ISSUER
+ARG VITE_OIDC_CLIENT_ID=continuum-client
+ARG VITE_OIDC_REDIRECT_URI
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_OIDC_ISSUER=$VITE_OIDC_ISSUER
+ENV VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID
+ENV VITE_OIDC_REDIRECT_URI=$VITE_OIDC_REDIRECT_URI
+
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY packages/protocol/package.json packages/protocol/tsconfig.json ./packages/protocol/
+COPY apps/api/package.json apps/api/tsconfig.json ./apps/api/
+COPY apps/client/package.json apps/client/tsconfig.json apps/client/tsconfig.app.json apps/client/tsconfig.node.json ./apps/client/
+RUN npm ci --ignore-scripts
+COPY packages/protocol ./packages/protocol
+COPY apps/client ./apps/client
+RUN npm run build --workspace @continuum/protocol && npm run build --workspace @continuum/client
+
+FROM nginx:1.29-alpine
+COPY infra/nginx/client.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /workspace/apps/client/dist /usr/share/nginx/html
+EXPOSE 80

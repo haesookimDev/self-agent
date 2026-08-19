@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+**/dist
+**/target
+apps/client/src-tauri
+.git
+.github
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+coverage
+.nyc_output
