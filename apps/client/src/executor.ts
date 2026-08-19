@@ -6,6 +6,45 @@ const TERMINAL_RESULTS_KEY = 'continuum.executorResults';
 
 type ExecutorResult = Extract<RealtimeClientMessage, { type: 'command.result' }>['result'];
 
+export type ExecutorConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'authenticating'
+  | 'connected'
+  | 'disconnected'
+  | 'error';
+
+export interface ExecutorStatus {
+  state: ExecutorConnectionState;
+  deviceId: string | null;
+  message: string;
+}
+
+let executorStatus: ExecutorStatus = {
+  state: 'idle',
+  deviceId: null,
+  message: 'PC 실행기 자격 증명이 아직 연결되지 않았습니다.',
+};
+let stopActiveExecutor: (() => void) | undefined;
+const statusListeners = new Set<(status: ExecutorStatus) => void>();
+
+function updateExecutorStatus(status: ExecutorStatus): void {
+  executorStatus = status;
+  for (const listener of statusListeners) listener(status);
+}
+
+export function getExecutorStatus(): ExecutorStatus {
+  return executorStatus;
+}
+
+export function subscribeExecutorStatus(listener: (status: ExecutorStatus) => void): () => void {
+  statusListeners.add(listener);
+  listener(executorStatus);
+  return () => {
+    statusListeners.delete(listener);
+  };
+}
+
 function cachedResults(): Record<string, ExecutorResult> {
   try {
     return JSON.parse(localStorage.getItem(TERMINAL_RESULTS_KEY) ?? '{}') as Record<string, ExecutorResult>;
@@ -44,11 +83,27 @@ async function execute(command: CommandEnvelope): Promise<Record<string, unknown
 }
 
 export function startLocalExecutor(deviceId: string, credential: string): () => void {
-  const socket = new WebSocket(websocketUrl());
+  stopActiveExecutor?.();
+  updateExecutorStatus({ state: 'connecting', deviceId, message: '제어 서버에 연결하는 중입니다.' });
+
+  let socket: WebSocket;
+  try {
+    socket = new WebSocket(websocketUrl());
+  } catch (error) {
+    updateExecutorStatus({
+      state: 'error',
+      deviceId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return () => undefined;
+  }
   let heartbeat: number | undefined;
+  let stopped = false;
 
   const send = (message: RealtimeClientMessage) => socket.send(JSON.stringify(message));
   socket.addEventListener('open', () => {
+    if (stopped) return;
+    updateExecutorStatus({ state: 'authenticating', deviceId, message: 'Device ID와 credential을 확인하는 중입니다.' });
     send({ type: 'device.hello', deviceId, credential });
     heartbeat = window.setInterval(
       () => send({ type: 'device.heartbeat', deviceId }),
@@ -56,7 +111,22 @@ export function startLocalExecutor(deviceId: string, credential: string): () => 
     );
   });
   socket.addEventListener('message', (event) => {
-    const message = JSON.parse(String(event.data)) as RealtimeServerMessage;
+    if (stopped) return;
+    let message: RealtimeServerMessage;
+    try {
+      message = JSON.parse(String(event.data)) as RealtimeServerMessage;
+    } catch {
+      updateExecutorStatus({ state: 'error', deviceId, message: '서버가 올바르지 않은 실시간 메시지를 보냈습니다.' });
+      return;
+    }
+    if (message.type === 'device.accepted') {
+      updateExecutorStatus({ state: 'connected', deviceId, message: '자격 증명이 확인되어 PC 실행기가 온라인입니다.' });
+      return;
+    }
+    if (message.type === 'error') {
+      updateExecutorStatus({ state: 'error', deviceId, message: `${message.code}: ${message.message}` });
+      return;
+    }
     if (message.type !== 'command.dispatch') return;
     const previous = cachedResults()[message.command.id];
     if (previous) {
@@ -89,9 +159,26 @@ export function startLocalExecutor(deviceId: string, credential: string): () => 
       send({ type: 'command.result', result });
     })();
   });
+  socket.addEventListener('error', () => {
+    if (!stopped && executorStatus.state !== 'error') {
+      updateExecutorStatus({ state: 'error', deviceId, message: '실행기 WebSocket 연결에 실패했습니다.' });
+    }
+  });
+  socket.addEventListener('close', (event) => {
+    if (heartbeat) window.clearInterval(heartbeat);
+    if (!stopped && executorStatus.state !== 'error') {
+      const reason = event.reason ? `: ${event.reason}` : '';
+      updateExecutorStatus({ state: 'disconnected', deviceId, message: `서버 연결이 종료되었습니다${reason}` });
+    }
+  });
 
-  return () => {
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
     if (heartbeat) window.clearInterval(heartbeat);
     socket.close();
+    if (stopActiveExecutor === stop) stopActiveExecutor = undefined;
   };
+  stopActiveExecutor = stop;
+  return stop;
 }

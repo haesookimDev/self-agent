@@ -10,6 +10,13 @@ import type {
 import { api } from './api';
 import { authConfigured, authenticated, login, logout } from './auth';
 import {
+  getExecutorStatus,
+  startLocalExecutor,
+  subscribeExecutorStatus,
+  type ExecutorConnectionState,
+} from './executor';
+import {
+  apiBaseUrl,
   createServerConnection,
   isTauriRuntime,
   loadServerConnection,
@@ -417,26 +424,177 @@ function Improvements({ items, refresh }: { items: ImprovementCandidate[]; refre
 }
 
 function Settings() {
-  const [deviceId, setDeviceId] = useState(localStorage.getItem('continuum.deviceId') ?? '');
+  const tauri = isTauriRuntime();
+  const [savedDeviceId, setSavedDeviceId] = useState(localStorage.getItem('continuum.deviceId') ?? '');
+  const [deviceId, setDeviceId] = useState(savedDeviceId);
   const [credential, setCredential] = useState('');
+  const [credentialStored, setCredentialStored] = useState<boolean | null>(tauri ? null : false);
+  const [savingCredential, setSavingCredential] = useState(false);
+  const [credentialNotice, setCredentialNotice] = useState<string | null>(null);
+  const [credentialError, setCredentialError] = useState<string | null>(null);
+  const [executorStatus, setExecutorStatus] = useState(getExecutorStatus);
   const [rootId, setRootId] = useState('workspace');
   const [rootPath, setRootPath] = useState('');
+  const [rootBusy, setRootBusy] = useState(false);
+  const [rootNotice, setRootNotice] = useState<string | null>(null);
+  const [rootError, setRootError] = useState<string | null>(null);
+
+  useEffect(() => subscribeExecutorStatus(setExecutorStatus), []);
+
+  useEffect(() => {
+    if (!tauri || !savedDeviceId) {
+      setCredentialStored(false);
+      return;
+    }
+    let cancelled = false;
+    setCredentialStored(null);
+    void import('@tauri-apps/api/core').then(async ({ invoke }) => {
+      try {
+        const stored = await invoke<string>('load_device_credential', { deviceId: savedDeviceId });
+        if (!cancelled) setCredentialStored(stored.length >= 32);
+      } catch {
+        if (!cancelled) setCredentialStored(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [savedDeviceId, tauri]);
+
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (!('__TAURI_INTERNALS__' in window)) return;
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('store_device_credential', { deviceId, credential });
-    localStorage.setItem('continuum.deviceId', deviceId);
-    window.location.reload();
+    setCredentialNotice(null);
+    setCredentialError(null);
+    if (!tauri) {
+      setCredentialError('웹에서는 OS 보안 저장소를 사용할 수 없습니다. Tauri 데스크톱 앱에서 등록하세요.');
+      return;
+    }
+
+    const normalizedDeviceId = deviceId.trim();
+    const normalizedCredential = credential.trim();
+    if (!normalizedDeviceId || !normalizedCredential) return;
+    setSavingCredential(true);
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('store_device_credential', {
+        deviceId: normalizedDeviceId,
+        credential: normalizedCredential,
+      });
+      const verified = await invoke<string>('load_device_credential', { deviceId: normalizedDeviceId });
+      if (verified !== normalizedCredential) throw new Error('저장된 credential 검증에 실패했습니다.');
+
+      localStorage.setItem('continuum.deviceId', normalizedDeviceId);
+      setSavedDeviceId(normalizedDeviceId);
+      setDeviceId(normalizedDeviceId);
+      setCredential('');
+      setCredentialStored(true);
+      setCredentialNotice('OS 보안 저장소에 저장했습니다. 서버에서 자격 증명을 확인하는 중입니다.');
+      startLocalExecutor(normalizedDeviceId, verified);
+    } catch (reason) {
+      setCredentialStored(false);
+      setCredentialError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSavingCredential(false);
+    }
   }
   async function approveRoot(event: FormEvent) {
     event.preventDefault();
-    if (!('__TAURI_INTERNALS__' in window)) return;
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('approve_local_root', { rootId, path: rootPath });
-    setRootPath('');
+    setRootNotice(null);
+    setRootError(null);
+    if (!tauri || !rootId.trim() || !rootPath) return;
+    setRootBusy(true);
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('approve_local_root', { rootId: rootId.trim(), path: rootPath });
+      setRootNotice(`“${rootPath}” 폴더를 ${rootId.trim()} 루트로 허용했습니다.`);
+    } catch (reason) {
+      setRootError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setRootBusy(false);
+    }
   }
-  return <div className="two-column">{isTauriRuntime() && <section className="panel full-span"><div className="section-heading"><h3>제어 서버</h3><span>이 PC에 저장됨</span></div><p>플랫폼 도메인을 변경하면 기존 로그인 토큰을 지우고 새 서버로 다시 연결합니다.</p><ServerConnectionForm /></section>}<section className="panel"><div className="section-heading"><h3>PC 실행기 자격 증명</h3><span>OS 보안 저장소</span></div><p>기기 등록 응답으로 받은 자격 증명은 macOS Keychain 또는 Windows Credential Manager에 저장됩니다.</p><form onSubmit={(event) => void save(event)}><label>Device ID<input value={deviceId} onChange={(event) => setDeviceId(event.target.value)} /></label><label>Device credential<input type="password" value={credential} onChange={(event) => setCredential(event.target.value)} /></label><button className="primary" disabled={!('__TAURI_INTERNALS__' in window)}>안전하게 저장하고 재시작</button></form></section><section className="panel"><div className="section-heading"><h3>허용 폴더</h3><span>원격 변경 불가</span></div><p>로컬에서 명시적으로 등록한 폴더만 원격 파일 도구가 접근할 수 있습니다.</p><form onSubmit={(event) => void approveRoot(event)}><label>Root ID<input value={rootId} onChange={(event) => setRootId(event.target.value)} /></label><label>로컬 절대 경로<input value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder="/Users/me/workspace" /></label><button className="ghost" disabled={!('__TAURI_INTERNALS__' in window)}>이 PC에서 폴더 허용</button></form></section></div>;
+
+  async function chooseRoot() {
+    setRootNotice(null);
+    setRootError(null);
+    if (!tauri) {
+      setRootError('폴더 선택은 Tauri 데스크톱 앱에서만 사용할 수 있습니다.');
+      return;
+    }
+    setRootBusy(true);
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Continuum에서 허용할 폴더 선택',
+      });
+      if (typeof selected === 'string') setRootPath(selected);
+    } catch (reason) {
+      setRootError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setRootBusy(false);
+    }
+  }
+  const stateLabel: Record<ExecutorConnectionState, string> = {
+    idle: '대기',
+    connecting: '서버 연결 중',
+    authenticating: '자격 증명 확인 중',
+    connected: '온라인',
+    disconnected: '연결 종료',
+    error: '연결 실패',
+  };
+
+  return (
+    <div className="two-column">
+      {tauri && (
+        <section className="panel full-span">
+          <div className="section-heading"><h3>제어 서버</h3><span>이 PC에 저장됨</span></div>
+          <p>플랫폼 도메인을 변경하면 기존 로그인 토큰을 지우고 새 서버로 다시 연결합니다.</p>
+          <ServerConnectionForm />
+        </section>
+      )}
+      <section className="panel">
+        <div className="section-heading"><h3>PC 실행기 자격 증명</h3><span>OS 보안 저장소</span></div>
+        <p>기기 등록 응답으로 받은 자격 증명은 macOS Keychain 또는 Windows Credential Manager에 저장됩니다.</p>
+        {!tauri && <p className="info-message">웹 브라우저에서는 OS 보안 저장소와 로컬 실행기를 사용할 수 없습니다. 이 설정은 Tauri 데스크톱 앱에서 완료하세요.</p>}
+        <div className="credential-status">
+          <div><span>보안 저장소</span><strong>{credentialStored === null ? '확인 중' : credentialStored ? '저장됨' : '저장 안 됨'}</strong></div>
+          <div><span>실행기 서버</span><strong className={`executor-${executorStatus.state}`}>{stateLabel[executorStatus.state]}</strong></div>
+          <small>연결 대상: {apiBaseUrl()}</small>
+          {tauri && <small>{executorStatus.message}</small>}
+        </div>
+        {credentialNotice && <p className="success-message">{credentialNotice}</p>}
+        {credentialError && <p className="form-error">{credentialError}</p>}
+        <form onSubmit={(event) => void save(event)}>
+          <label>Device ID<input value={deviceId} onChange={(event) => setDeviceId(event.target.value)} /></label>
+          <label>Device credential<input type="password" value={credential} onChange={(event) => setCredential(event.target.value)} /></label>
+          <button className="primary" disabled={!tauri || savingCredential || !deviceId.trim() || !credential.trim()}>
+            {savingCredential ? '저장 확인 중…' : '안전하게 저장하고 연결 확인'}
+          </button>
+        </form>
+      </section>
+      <section className="panel">
+        <div className="section-heading"><h3>허용 폴더</h3><span>원격 변경 불가</span></div>
+        <p>네이티브 선택 창에서 직접 고른 폴더만 원격 파일 도구가 접근할 수 있습니다.</p>
+        {!tauri && <p className="info-message">웹 브라우저에서는 로컬 폴더를 허용할 수 없습니다. Tauri 데스크톱 앱에서 폴더를 선택하세요.</p>}
+        {rootNotice && <p className="success-message">{rootNotice}</p>}
+        {rootError && <p className="form-error">{rootError}</p>}
+        <form onSubmit={(event) => void approveRoot(event)}>
+          <label>Root ID<input value={rootId} onChange={(event) => setRootId(event.target.value)} /></label>
+          <label>선택한 폴더
+            <div className="path-picker">
+              <input value={rootPath} readOnly placeholder="아직 선택한 폴더가 없습니다." />
+              <button type="button" className="ghost" onClick={() => void chooseRoot()} disabled={!tauri || rootBusy}>
+                폴더 선택
+              </button>
+            </div>
+          </label>
+          <button className="primary" disabled={!tauri || rootBusy || !rootId.trim() || !rootPath}>
+            {rootBusy ? '처리 중…' : '선택한 폴더 허용'}
+          </button>
+        </form>
+      </section>
+    </div>
+  );
 }
 
 function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }

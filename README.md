@@ -73,7 +73,7 @@ npm run mobile:sync
 
 1. Call `POST /v1/devices` as an authenticated user with `kind: "executor"` and the capabilities returned by the Tauri `capability_manifest` command.
 2. Copy the one-time `device.id` and `credential` response into **Settings → PC executor credentials** in the Tauri app. The secret is stored in the OS credential manager.
-3. Add a root ID and local absolute path under **Settings → Allowed folders**. Remote commands can never create or change this local allowlist.
+3. Add a root ID under **Settings → Allowed folders**, then choose the folder with the native picker. Remote commands can never create or change this local allowlist.
 4. Use command arguments shaped like `{ "rootId": "workspace", "relativePath": "notes.txt" }`.
 
 ## Single-VPS deployment

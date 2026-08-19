@@ -86,6 +86,18 @@ textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, m
 .approval pre { max-height: 150px; overflow: auto; color: #899690; font-size: 10px; }
 .approval > div:last-child, .candidate > div:last-child { display: flex; gap: 8px; margin-top: 14px; }
 .warning { color: #e9bb6a; font-size: 11px; }
+.info-message, .success-message { padding: 11px 12px; border-radius: 9px; font-size: 12px; line-height: 1.5; }
+.info-message { color: #d7b46e; border: 1px solid #55411e; background: #271f11; }
+.success-message { color: #8de6b5; border: 1px solid #28553d; background: #13291e; }
+.credential-status { display: grid; gap: 9px; margin: 16px 0; padding: 13px; border: 1px solid #29312e; border-radius: 10px; background: #0e1211; }
+.credential-status > div { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.credential-status span, .credential-status small { color: #68766f; }
+.credential-status small { overflow-wrap: anywhere; }
+.executor-connected { color: #79e6ae; }
+.executor-connecting, .executor-authenticating { color: #e5c073; }
+.executor-error, .executor-disconnected { color: #ff9b96; }
+.path-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.path-picker input[readonly] { color: #a7b3ae; cursor: default; }
 .table-list { display: grid; }
 .screen-preview { min-height: 180px; display: grid; place-items: center; border-radius: 10px; overflow: hidden; background: #080a09; }
 .screen-preview img { display: block; max-width: 100%; max-height: 70vh; object-fit: contain; }
